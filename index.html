@@ -1,0 +1,261 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Fireworks AR - Feria</title>
+
+  <!-- A-Frame estable -->
+  <script src="https://aframe.io/releases/1.4.0/aframe.min.js"></script>
+  <!-- AR.js (versión empaquetada en jsDelivr, confiable para GitHub Pages) -->
+  <script src="https://cdn.jsdelivr.net/gh/AR-js-org/AR.js@3.3.2/aframe/build/aframe-ar.js"></script>
+
+  <style>
+    html,body { height:100%; margin:0; font-family: Arial, Helvetica, sans-serif; background:#000; color:#fff; }
+    #ui {
+      position: fixed;
+      left: 0; right: 0; top: 0; pointer-events: none;
+      display:flex; justify-content:center; gap:12px; padding:12px; z-index:9999;
+    }
+    .btn {
+      pointer-events: auto;
+      background: linear-gradient(180deg,#ff6b6b,#d00030);
+      border: none;
+      color: white;
+      padding: 12px 18px;
+      border-radius: 10px;
+      font-size: 16px;
+      cursor: pointer;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+    }
+    .btn-secondary {
+      background: rgba(255,255,255,0.95);
+      color: #111;
+    }
+    #status {
+      position: fixed;
+      left: 12px;
+      bottom: 12px;
+      background: rgba(0,0,0,0.6);
+      color: #fff;
+      padding: 8px 10px;
+      border-radius: 8px;
+      z-index: 9999;
+      font-size: 13px;
+    }
+    a-scene { width:100%; height:100%; display:block; }
+    #help {
+      position: fixed;
+      right: 12px;
+      bottom: 12px;
+      background: rgba(255,255,255,0.95);
+      color:#111;
+      padding: 8px 10px;
+      border-radius: 8px;
+      font-size: 13px;
+      z-index:9999;
+      max-width: 40%;
+    }
+  </style>
+</head>
+<body>
+
+  <div id="ui">
+    <button id="startBtn" class="btn">Start experience</button>
+    <button id="testCamBtn" class="btn btn-secondary" title="Test camera & permission">Test camera</button>
+  </div>
+
+  <div id="status">Status: esperando inicio</div>
+  <div id="help">
+    1) Abrí este link en tu teléfono (Chrome o Safari).<br>
+    2) Tocá <strong>Start experience</strong> y permití la cámara.<br>
+    3) Apuntá al marcador <a href="https://raw.githubusercontent.com/AR-js-org/AR.js/master/data/images/hiro.png" target="_blank">Hiro</a> impreso.<br>
+    4) Tocá el botón rojo que aparece sobre el marcador para lanzar los fuegos.
+  </div>
+
+  <!-- Escena AR (oculta hasta que el usuario toque Start) -->
+  <a-scene id="ar-scene"
+           embedded
+           style="display:none"
+           arjs="sourceType: webcam; debugUIEnabled: false; detectionMode: mono_and_matrix; matrixCodeType: 3;">
+    <a-marker preset="hiro">
+      <!-- raíz para efectos -->
+      <a-entity id="fx-root" position="0 0 0"></a-entity>
+
+      <!-- Botón virtual visible sobre el marcador -->
+      <a-entity id="virtualBtn" position="0 0.45 0" rotation="-25 0 0">
+        <a-plane id="btnPlane" class="clickable" width="0.6" height="0.25" color="#ff3366"
+                 material="shader:flat; opacity:0.95"></a-plane>
+        <a-text value="🚀 LAUNCH" align="center" position="0 0 0.02" color="#fff" width="2.2"></a-text>
+      </a-entity>
+
+      <!-- suelo invisible para referencia -->
+      <a-plane position="0 0 0" rotation="-90 0 0" width="2" height="2" visible="false"></a-plane>
+    </a-marker>
+
+    <!-- cámara con raycaster configurado para toques/mouse -->
+    <a-entity camera position="0 0 0"
+              raycaster="objects: .clickable; far: 10"
+              cursor="rayOrigin: mouse; fuse: false"></a-entity>
+  </a-scene>
+
+<script>
+  const startBtn = document.getElementById('startBtn');
+  const testCamBtn = document.getElementById('testCamBtn');
+  const status = document.getElementById('status');
+  const arScene = document.getElementById('ar-scene');
+  const fxRoot = document.getElementById('fx-root');
+
+  // ---------- Helper: activar cámara para forzar prompt en móviles ----------
+  async function ensureCameraPermission() {
+    status.innerText = 'Status: solicitando permiso de cámara...';
+    try {
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        throw new Error('getUserMedia no disponible en este navegador.');
+      }
+      // Pedimos acceso y detenemos la pista (solo para forzar prompt)
+      const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+      // stop tracks inmediatamente (AR.js abrirá su propia cámara)
+      stream.getTracks().forEach(t => t.stop());
+      status.innerText = 'Status: permiso concedido. Iniciando AR...';
+      return true;
+    } catch (err) {
+      console.error('Camera permission error:', err);
+      status.innerText = 'Status: permiso denegado o no disponible: ' + (err.message || err);
+      return false;
+    }
+  }
+
+  // ---------- Spawner de partículas (fuegos) ----------
+  function spawnParticles(colorHex, count = 28, originY = 1.6) {
+    const group = document.createElement('a-entity');
+    for (let i = 0; i < count; i++) {
+      const s = document.createElement('a-sphere');
+      const r = 0.03 + Math.random() * 0.05;
+      s.setAttribute('radius', r.toFixed(3));
+      s.setAttribute('color', colorHex);
+      s.setAttribute('position', `0 ${originY} 0`);
+      s.setAttribute('material', 'opacity:1; transparent:true');
+
+      const dx = (Math.random() - 0.5) * 2.4;
+      const dy = 0.6 + Math.random() * 1.8;
+      const dz = (Math.random() - 0.5) * 2.4;
+      const dur = 700 + Math.random() * 800;
+
+      s.setAttribute('animation__move', `
+        property: position;
+        to: ${dx.toFixed(3)} ${dy.toFixed(3)} ${dz.toFixed(3)};
+        dur: ${dur.toFixed(0)};
+        easing: easeOutCubic;
+        loop: false;
+      `);
+      s.setAttribute('animation__fade', `
+        property: material.opacity;
+        to: 0;
+        dur: ${dur.toFixed(0)};
+        easing: linear;
+        delay: ${Math.floor(dur*0.08)};
+      `);
+
+      group.appendChild(s);
+    }
+    fxRoot.appendChild(group);
+    setTimeout(()=> { if (fxRoot.contains(group)) fxRoot.removeChild(group); }, 2600);
+  }
+
+  function launchRocket(color) {
+    const rocket = document.createElement('a-sphere');
+    rocket.setAttribute('radius', '0.05');
+    rocket.setAttribute('color', color);
+    rocket.setAttribute('position', '0 0 0');
+    rocket.setAttribute('animation__rise', `
+      property: position;
+      to: 0 1.6 0;
+      dur: 700;
+      easing: easeOutQuad;
+      loop: false;
+    `);
+    fxRoot.appendChild(rocket);
+    setTimeout(()=> {
+      spawnParticles(color, 30, 1.6);
+      if (fxRoot.contains(rocket)) fxRoot.removeChild(rocket);
+    }, 740);
+  }
+
+  function launchShow() {
+    // bloqueamos para evitar spam
+    startBtn.disabled = true;
+    startBtn.style.opacity = 0.6;
+    launchSequence();
+    setTimeout(()=> {
+      startBtn.disabled = false;
+      startBtn.style.opacity = 1;
+    }, 2200);
+  }
+
+  function launchSequence() {
+    launchRocket('#ff2233'); // rojo
+    setTimeout(()=> launchRocket('#00d1ff'), 200); // azul
+    setTimeout(()=> launchRocket('#33ff66'), 400); // verde
+  }
+
+  // ---------- Inicialización cuando click Start ----------
+  startBtn.addEventListener('click', async () => {
+    startBtn.disabled = true;
+    startBtn.innerText = 'Permitiendo cámara...';
+    const ok = await ensureCameraPermission();
+    if (!ok) {
+      startBtn.disabled = false;
+      startBtn.innerText = 'Start experience';
+      return;
+    }
+
+    // mostrar la escena AR
+    arScene.style.display = 'block';
+    startBtn.innerText = 'Launch disabled (usa el botón rojo sobre el marker)';
+    status.innerText = 'Status: apunta al marcador Hiro y toca el botón rojo sobre él';
+    // dejamos el botón principal visible pero no funcional para no confundir
+    // Activamos interacción: el plano dentro del marcador recibirá clicks
+  });
+
+  // testCamBtn para diagnóstico rápido
+  testCamBtn.addEventListener('click', async () => {
+    testCamBtn.disabled = true;
+    testCamBtn.innerText = 'Probando cámara...';
+    const ok = await ensureCameraPermission();
+    testCamBtn.innerText = ok ? 'Cámara OK' : 'Error cámara';
+    setTimeout(()=> { testCamBtn.disabled = false; testCamBtn.innerText = 'Test camera'; }, 1200);
+  });
+
+  // ---------- Detectar click/tap en el plano virtual dentro de la escena ----------
+  AFRAME.registerComponent('tap-handler', {
+    init: function () {
+      const el = this.el;
+      el.addEventListener('click', (ev) => {
+        // cuando el plano recibe click/tap, lanzamos show
+        launchShow();
+      });
+      el.addEventListener('touchstart', (ev) => {
+        launchShow();
+      });
+    }
+  });
+
+  // asociar componente al plano cuando la escena está lista
+  document.querySelector('a-scene').addEventListener('loaded', ()=> {
+    const plane = document.getElementById('btnPlane');
+    if (plane) {
+      plane.classList.add('clickable');
+      plane.setAttribute('tap-handler','');
+    }
+  });
+
+  // Mensaje adicional cuando no se carga la librería AR.js (debug)
+  window.addEventListener('error', (e) => {
+    console.error('Error global', e);
+    status.innerText = 'Status: error (ver consola). ¿Estás en HTTPS y no en navegador embebido?';
+  });
+
+</script>
+</body>
+</html>
