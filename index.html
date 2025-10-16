@@ -3,101 +3,93 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
-  <title>Fireworks AR - Feria (fix video)</title>
+  <title>Fireworks AR - FIXED Zoom & Big Show</title>
 
   <!-- A-Frame + AR.js -->
   <script src="https://aframe.io/releases/1.5.0/aframe.min.js"></script>
   <script src="https://cdn.jsdelivr.net/gh/AR-js-org/AR.js@3.4.4/aframe/build/aframe-ar.js"></script>
 
   <style>
-    /* Fullscreen layout */
-    html, body {
-      height: 100%;
-      width: 100%;
-      margin: 0;
-      background: black;
-      -webkit-touch-callout: none;
-      -webkit-user-select: none;
-      user-select: none;
-    }
+    html,body { margin:0; height:100%; background:#000; font-family: Arial, sans-serif; }
+    /* Scene full-viewport */
+    a-scene { position: fixed; top:0; left:0; width:100%; height:100%; z-index:0; }
 
-    /* A-Frame scene must cover whole viewport */
-    a-scene, #arScene {
-      position: fixed;
-      top: 0;
-      left: 0;
-      width: 100%;
-      height: 100%;
-      margin: 0;
-      z-index: 1;
-      background: transparent;
-    }
-
-    /* Force the camera video added by AR.js to cover the full viewport.
-       We target common class/id names and <video> as a fallback. */
-    .arjs-video, video#arjs-video, video[playsinline], video {
+    /* Force default video behavior to avoid browser zoom/crop:
+       we set object-fit: contain so the video fits inside viewport without zooming.
+       Then we center the scene and use A-Frame elements overlayed on top. */
+    video, .arjs-video, video#arjs-video, video[playsinline] {
       position: fixed !important;
       top: 0 !important;
       left: 0 !important;
       width: 100% !important;
       height: 100% !important;
-      object-fit: cover !important;   /* crop to fill, avoids letterbox/pillarbox */
+      object-fit: contain !important;   /* <-- key change (avoid zooming) */
       transform: none !important;
       z-index: 0 !important;
+      background: black;
     }
 
-    /* UI overlays on top */
-    #controls {
+    /* UI overlays */
+    #ui {
       position: fixed;
       top: 10px;
       left: 10px;
       z-index: 9999;
-      display: flex;
-      gap: 8px;
-      align-items: center;
+      display:flex;
+      gap:8px;
+      align-items:center;
     }
     #startBtn, #stopBtn {
-      padding: 10px 14px;
-      border-radius: 8px;
-      border: none;
-      font-size: 15px;
-      cursor: pointer;
+      padding:10px 14px;
+      border-radius:8px;
+      border:none;
+      font-size:14px;
+      cursor:pointer;
     }
-    #startBtn { background: linear-gradient(180deg,#28a745,#1f7a31); color: white; }
-    #stopBtn  { background: linear-gradient(180deg,#ff6666,#c83232); color: white; display:none; }
-
+    #startBtn { background:#1FAE2F; color:white; }
+    #stopBtn  { background:#E03F3F; color:white; display:none; }
     #status {
       position: fixed;
       left: 12px;
       bottom: 12px;
-      z-index: 9999;
-      background: rgba(0,0,0,0.55);
+      z-index:9999;
+      background: rgba(0,0,0,0.6);
       color: #fff;
       padding: 8px 10px;
       border-radius: 8px;
       font-size: 13px;
-      max-width: 46%;
+      max-width: 60%;
     }
-
-    /* small help text */
-    #hint { color: #fff; font-size: 13px; margin-left: 6px; }
+    #debug {
+      position: fixed;
+      right: 12px;
+      top: 12px;
+      z-index:9999;
+      color:#fff;
+      font-size:12px;
+      background: rgba(0,0,0,0.35);
+      padding:6px 8px;
+      border-radius:6px;
+    }
   </style>
 </head>
 <body>
 
-  <div id="controls">
-    <button id="startBtn">🎬 Start experience</button>
-    <button id="stopBtn">⏹ Stop AR</button>
-    <div id="hint">Imprime el marcador HIRO y mantenlo visible</div>
+  <div id="ui">
+    <button id="startBtn">▶ Start experience</button>
+    <button id="stopBtn">■ Stop AR</button>
+    <div id="hint" style="color:#fff;font-size:13px;margin-left:8px">Imprime el marcador HIRO y mantenlo visible</div>
   </div>
 
   <div id="status">Estado: esperando inicio</div>
+  <div id="debug">debug: -</div>
 
-  <!-- Escena AR (oculta hasta iniciar) -->
-  <a-scene id="arScene" embedded style="display:none"
+  <!-- Scene (hidden until start) -->
+  <a-scene id="scene" embedded style="display:none"
            arjs="sourceType: webcam; debugUIEnabled: false; detectionMode: mono;">
     <a-marker preset="hiro" id="hiroMarker">
-      <a-entity id="fx-root" position="0 0.25 0" scale="1 1 1"></a-entity>
+      <!-- origin un poco mas arriba para que los fuegos sean claramente visibles -->
+      <a-entity id="fx-root" position="0 0.45 0" scale="1.6 1.6 1.6"></a-entity>
       <a-plane position="0 0 0" rotation="-90 0 0" width="2" height="2" visible="false"></a-plane>
     </a-marker>
 
@@ -105,92 +97,99 @@
   </a-scene>
 
 <script>
-  // Lógica similar a la versión auto-show; foco aquí: forzar fullscreen video y test
   const startBtn = document.getElementById('startBtn');
   const stopBtn  = document.getElementById('stopBtn');
   const statusEl = document.getElementById('status');
-  const arScene  = document.getElementById('arScene');
-  const fxRootSelector = '#fx-root';
+  const debugEl  = document.getElementById('debug');
+  const sceneEl  = document.getElementById('scene');
   let autoInterval = null;
   let markerVisible = false;
 
-  async function ensureCameraPrompt() {
+  // ENSURE camera prompt (forces permission; AR.js will re-open stream)
+  async function requestCamera() {
     statusEl.innerText = 'Estado: solicitando permiso de cámara...';
+    debugEl.innerText = 'debug: requesting getUserMedia';
     try {
-      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-        throw new Error('getUserMedia no disponible en este navegador.');
-      }
       const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
       stream.getTracks().forEach(t => t.stop());
-      statusEl.innerText = 'Estado: permiso concedido';
+      debugEl.innerText = 'debug: permiso concedido';
       return true;
     } catch (err) {
       console.error(err);
+      debugEl.innerText = 'debug: permiso DENEGADO or getUserMedia error';
       statusEl.innerText = 'Estado: permiso denegado o cámara no disponible';
       return false;
     }
   }
 
-  function showScene() {
-    // Mostrar escena
-    arScene.style.display = 'block';
-    startBtn.style.display = 'none';
-    stopBtn.style.display = 'inline-block';
-    statusEl.innerText = 'Estado: apunta al marcador HIRO';
-    // Forzar reflow para que AR.js inyecte el video correctamente
-    setTimeout(() => {
-      // Ajuste adicional: si AR.js creó un video, forzamos estilos (por si no aplicó)
-      const v1 = document.querySelector('.arjs-video');
-      const v2 = document.querySelector('video#arjs-video');
-      const v3 = document.querySelector('video[playsinline]');
-      const video = v1 || v2 || v3;
-      if (video) {
-        video.style.objectFit = 'cover';
-        video.style.width = '100%';
-        video.style.height = '100%';
-        video.style.top = '0';
-        video.style.left = '0';
+  // Force video styling again after AR.js injects it
+  function enforceVideoStyle() {
+    // try a few selectors
+    const selectors = ['.arjs-video', 'video#arjs-video', 'video[playsinline]', 'video'];
+    for (const sel of selectors) {
+      const v = document.querySelector(sel);
+      if (v) {
+        v.style.objectFit = 'contain';
+        v.style.width = '100%';
+        v.style.height = '100%';
+        v.style.top = '0';
+        v.style.left = '0';
+        v.style.transform = 'none';
       }
-    }, 600);
-    setupMarkerListeners(); // attach events
+    }
+    debugEl.innerText = 'debug: video style enforced';
   }
 
-  startBtn.addEventListener('click', async () => {
+  async function startExperience() {
     startBtn.disabled = true;
-    const ok = await ensureCameraPrompt();
+    const ok = await requestCamera();
     if (!ok) { startBtn.disabled = false; return; }
-    showScene();
-  });
+    // show scene and wait a moment for AR.js to create the video element
+    sceneEl.style.display = 'block';
+    startBtn.style.display = 'none';
+    stopBtn.style.display = 'inline-block';
+    statusEl.innerText = 'Estado: cámara activa — apunta al HIRO';
+    // after small delay, enforce style (ensures proper object-fit)
+    setTimeout(enforceVideoStyle, 400);
+    setTimeout(enforceVideoStyle, 1000);
+    setTimeout(enforceVideoStyle, 2000);
+    // prepare marker listeners
+    setupMarkerListeners();
+  }
 
-  stopBtn.addEventListener('click', () => {
-    // limpiar auto shows y ocultar escena
-    clearInterval(autoInterval);
-    autoInterval = null;
-    arScene.style.display = 'none';
+  function stopExperience() {
+    stopAuto();
+    // hide scene and reset UI
+    sceneEl.style.display = 'none';
     stopBtn.style.display = 'none';
     startBtn.style.display = 'inline-block';
     statusEl.innerText = 'Estado: detenido';
-  });
+    debugEl.innerText = 'debug: stopped';
+  }
 
-  // PARTICLES / SHOW (vistoso, largo)
-  function spawnExplosion(colorHex, amount = 80, originY = 1.3, duration = 5000) {
-    const root = document.querySelector(fxRootSelector);
+  startBtn.addEventListener('click', startExperience);
+  stopBtn.addEventListener('click', stopExperience);
+
+  // --- visual fireworks (vistoso y duradero) ---
+  function spawnExplosion(color, count = 100, originY = 1.6, lifeMs = 8000) {
+    const root = document.querySelector('#fx-root');
     if (!root) return;
     const group = document.createElement('a-entity');
-    for (let i = 0; i < amount; i++) {
+
+    for (let i = 0; i < count; i++) {
       const s = document.createElement('a-sphere');
-      const r = 0.04 + Math.random() * 0.06;
+      const r = 0.035 + Math.random() * 0.07;
       s.setAttribute('radius', r.toFixed(3));
-      s.setAttribute('color', colorHex);
+      s.setAttribute('color', color);
       s.setAttribute('position', `0 ${originY} 0`);
       s.setAttribute('material', 'opacity:1; transparent:true;');
 
       const ang = Math.random() * Math.PI * 2;
-      const rad = 0.8 + Math.random() * 1.8;
+      const rad = 0.8 + Math.random() * 2.0;
       const dx = Math.cos(ang) * rad;
-      const dy = 0.6 + Math.random() * 2.0;
+      const dy = 0.8 + Math.random() * 2.2;
       const dz = Math.sin(ang) * rad;
-      const dur = 1000 + Math.random() * 2000;
+      const dur = 1200 + Math.random() * 2200;
 
       s.setAttribute('animation__move', `
         property: position;
@@ -202,59 +201,69 @@
       s.setAttribute('animation__fade', `
         property: material.opacity;
         to: 0;
-        dur: ${Math.floor(dur + 400)};
-        delay: ${Math.floor(dur*0.05)};
+        dur: ${Math.floor(dur + 800)};
+        delay: ${Math.floor(dur*0.08)};
       `);
+
       group.appendChild(s);
     }
+
     root.appendChild(group);
-    setTimeout(()=> { if (root.contains(group)) root.removeChild(group); }, duration + 1500);
+    // cleanup after lifeMs + buffer
+    setTimeout(()=> { if (root.contains(group)) root.removeChild(group); }, lifeMs + 1200);
   }
 
-  function launchShowSequence() {
-    spawnExplosion('#ff2d55', 90, 1.4, 7000);
-    setTimeout(()=> spawnExplosion('#ffd60a', 80, 1.3, 7000), 500);
-    setTimeout(()=> spawnExplosion('#32d74b', 80, 1.5, 7000), 1100);
-    setTimeout(()=> spawnExplosion('#5ac8fa', 70, 1.6, 7000), 1700);
-    setTimeout(()=> spawnExplosion('#bf5af2', 70, 1.4, 7000), 2400);
-    setTimeout(()=> spawnExplosion('#ffffff', 130, 1.7, 8000), 3200); // gran final
+  function launchSequence() {
+    spawnExplosion('#ff2d55', 120, 1.5, 8000);
+    setTimeout(()=> spawnExplosion('#ffd60a', 100, 1.3, 8000), 600);
+    setTimeout(()=> spawnExplosion('#32d74b', 100, 1.6, 8000), 1200);
+    setTimeout(()=> spawnExplosion('#5ac8fa', 90, 1.7, 8000), 2000);
+    setTimeout(()=> spawnExplosion('#bf5af2', 90, 1.5, 8000), 2800);
+    setTimeout(()=> spawnExplosion('#ffffff', 180, 1.8, 9000), 3800); // final
   }
 
-  function startAutoShows() {
+  // auto while marker visible
+  function startAuto() {
     if (autoInterval) return;
-    launchShowSequence();
-    autoInterval = setInterval(launchShowSequence, 9000); // cada 9s
-    statusEl.innerText = 'Estado: marcador visible — show automático activo';
+    launchSequence();
+    autoInterval = setInterval(launchSequence, 10000); // cada 10s (ajustable)
+    statusEl.innerText = 'Estado: show automático activo';
   }
-  function stopAutoShows() {
-    if (autoInterval) { clearInterval(autoInterval); autoInterval = null; }
+  function stopAuto() {
+    if (!autoInterval) return;
+    clearInterval(autoInterval);
+    autoInterval = null;
+    statusEl.innerText = 'Estado: show detenido';
   }
 
+  // --- marker listeners ---
   function setupMarkerListeners() {
     const marker = document.getElementById('hiroMarker');
-    if (!marker) { statusEl.innerText = 'Error: no se encontró marker en la escena.'; return; }
-
+    if (!marker) {
+      debugEl.innerText = 'debug: marker no encontrado';
+      statusEl.innerText = 'Error interno: marker no en DOM';
+      return;
+    }
     marker.addEventListener('markerFound', () => {
+      console.log('markerFound');
+      debugEl.innerText = 'debug: markerFound';
       markerVisible = true;
-      statusEl.innerText = 'Estado: marcador detectado — preparando show';
-      setTimeout(()=> { if (markerVisible) startAutoShows(); }, 600);
+      // ensure video style when marker found
+      setTimeout(enforceVideoStyle, 200);
+      // start automatic shows (after stability)
+      setTimeout(()=> { if (markerVisible) startAuto(); }, 700);
     });
     marker.addEventListener('markerLost', () => {
+      console.log('markerLost');
+      debugEl.innerText = 'debug: markerLost';
       markerVisible = false;
-      statusEl.innerText = 'Estado: marcador perdido — show en pausa';
-      stopAutoShows();
-      // conservar partículas visibles por unos segundos
+      stopAuto();
+      // keep particles for a bit so show remains impressive
     });
   }
 
-  // Debug: log en consola para verificar video element y tamaño
-  window.addEventListener('load', () => {
-    console.log('Carga completa. Abre la página en Chrome/Safari y pulsa Start experience.');
-  });
-  window.addEventListener('error', (e) => {
-    console.error('Error global:', e);
-    statusEl.innerText = 'Error: revisá consola o probá otro navegador. Usa Chrome o Safari.';
-  });
+  // small guidance log
+  console.log('Fixed AR page loaded. Use Chrome (Android) or Safari (iOS). Keep marker ~25-40cm from camera.');
 </script>
 </body>
 </html>
