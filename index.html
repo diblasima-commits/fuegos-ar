@@ -7,10 +7,7 @@
     <script src="https://aframe.io/releases/1.4.2/aframe.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/ar.js@3.3.2/aframe/build/aframe-ar-nft.js"></script>
     <style>
-      body {
-        margin: 0;
-        overflow: hidden;
-      }
+      body { margin: 0; overflow: hidden; }
       #startButton, #launchButton {
         position: absolute;
         bottom: 20px;
@@ -35,10 +32,9 @@
     <a-scene
       id="scene"
       embedded
-      arjs="sourceType: webcam;"
       vr-mode-ui="enabled: false"
       renderer="logarithmicDepthBuffer: true;"
-      style="display:none"
+      arjs="sourceType: webcam; debugUIEnabled: false;"
     >
       <a-marker preset="hiro">
         <a-entity id="fireworks"></a-entity>
@@ -49,42 +45,51 @@
     <script>
       const startButton = document.getElementById("startButton");
       const launchButton = document.getElementById("launchButton");
-      const scene = document.getElementById("scene");
       const fireworks = document.getElementById("fireworks");
+      const scene = document.getElementById("scene");
 
       startButton.addEventListener("click", () => {
-        scene.style.display = "block";
         startButton.style.display = "none";
         launchButton.style.display = "block";
+
+        // Forzar inicio de AR en móviles
+        scene.setAttribute("arjs", "sourceType: webcam;");
       });
 
       launchButton.addEventListener("click", () => {
         for (let i = 0; i < 10; i++) {
           const sphere = document.createElement("a-sphere");
+          const x = (Math.random() - 0.5) * 2;
+          const y = 0;
+          const z = (Math.random() - 0.5) * 2;
+
+          sphere.setAttribute("position", `${x} ${y} ${z}`);
           sphere.setAttribute("radius", "0.1");
           sphere.setAttribute("color", getRandomColor());
-          sphere.setAttribute("position", `${(Math.random() - 0.5) * 2} 0 ${(Math.random() - 0.5) * 2}`);
+
+          // Animación de subida
+          sphere.setAttribute("animation", `
+            property: position;
+            to: ${x} ${2 + Math.random() * 2} ${z};
+            dur: 1000;
+            easing: ease-out
+          `);
+
+          // Animación de explosión
+          sphere.setAttribute("animation__scale", `
+            property: scale;
+            to: 3 3 3;
+            dur: 400;
+            delay: 1000;
+            fill: forwards
+          `);
+
           fireworks.appendChild(sphere);
 
-          const animUp = document.createElement("a-animation");
-          animUp.setAttribute("attribute", "position");
-          animUp.setAttribute("to", `${sphere.object3D.position.x} ${2 + Math.random() * 2} ${sphere.object3D.position.z}`);
-          animUp.setAttribute("dur", "1000");
-          animUp.setAttribute("easing", "ease-out");
-
-          const animExplode = document.createElement("a-animation");
-          animExplode.setAttribute("attribute", "scale");
-          animExplode.setAttribute("to", "3 3 3");
-          animExplode.setAttribute("dur", "400");
-          animExplode.setAttribute("begin", "animationcomplete__up");
-          animExplode.setAttribute("fill", "forwards");
-
-          sphere.appendChild(animUp);
-          sphere.appendChild(animExplode);
-
-          animUp.addEventListener("animationend", () => {
-            setTimeout(() => fireworks.removeChild(sphere), 700);
-          });
+          // Eliminar esfera después de animación
+          setTimeout(() => {
+            if(fireworks.contains(sphere)) fireworks.removeChild(sphere);
+          }, 1500);
         }
       });
 
