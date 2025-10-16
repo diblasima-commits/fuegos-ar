@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Fireworks AR - Feria</title>
+
+  <!-- A-Frame y AR.js -->
+  <script src="https://aframe.io/releases/1.4.0/aframe.min.js"></script>
+  <script src="https://raw.githack.com/AR-js-org/AR.js/master/aframe/build/aframe-ar.js"></script>
+
+  <style>
+    html,body { height:100%; margin:0; font-family: Arial, Helvetica, sans-serif; }
+    #launch-btn {
+      position: fixed;
+      bottom: 18px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: linear-gradient(180deg,#ff4d6d,#c4003b);
+      color: #fff;
+      border: none;
+      padding: 12px 22px;
+      font-size: 18px;
+      border-radius: 12px;
+      box-shadow: 0 6px 16px rgba(0,0,0,0.3);
+      z-index: 10;
+      cursor: pointer;
+    }
+    #info {
+      position: fixed;
+      top: 10px;
+      left: 10px;
+      background: rgba(0,0,0,0.45);
+      color: white;
+      padding: 8px 10px;
+      border-radius: 8px;
+      font-size: 14px;
+      z-index: 10;
+      max-width: 45%;
+    }
+    #hint {
+      position: fixed;
+      top: 10px;
+      right: 10px;
+      background: rgba(255,255,255,0.85);
+      color: #111;
+      padding: 8px 10px;
+      border-radius: 8px;
+      font-size: 13px;
+      z-index: 10;
+    }
+    /* Evitar que el botón o info interfieran con la escena AR */
+    a-scene { width:100%; height:100%; display:block; }
+  </style>
+</head>
+<body>
+
+  <div id="info">
+    🎆 Fireworks AR — Feria escolar<br>
+    1) Abrí este link en el celular<br>
+    2) Permití el acceso a la cámara<br>
+    3) Apuntá al marcador <em>Hiro</em><br>
+    4) Tocá <strong>Launch!</strong>
+  </div>
+
+  <div id="hint">Marker: <a href="https://raw.githubusercontent.com/AR-js-org/AR.js/master/data/images/hiro.png" target="_blank" style="color:#ffd;">Hiro (click to open)</a></div>
+
+  <button id="launch-btn">🚀 Launch!</button>
+
+  <!-- Escena A-Frame con AR.js (marker-based) -->
+  <a-scene embedded arjs="sourceType: webcam; debugUIEnabled: false;">
+    <!-- marcador hiro por defecto -->
+    <a-marker preset="hiro">
+      <!-- Nodo contenedor para los fuegos -->
+      <a-entity id="fx-root" position="0 0 0" rotation="0 0 0"></a-entity>
+
+      <!-- Suave "suelo" invisible para referencias (opcional) -->
+      <a-plane position="0 0 0" rotation="-90 0 0" width="2" height="2" visible="false"></a-plane>
+    </a-marker>
+
+    <!-- cámara -->
+    <a-entity camera></a-entity>
+  </a-scene>
+
+<script>
+  // Referencias
+  const root = document.getElementById('fx-root');
+  const btn = document.getElementById('launch-btn');
+
+  // Crea partículas simples (esferas) que se expanden y se desvanecen
+  function spawnParticles(colorHex, count = 24, originY = 1.0) {
+    const particles = document.createElement('a-entity');
+    for (let i = 0; i < count; i++) {
+      const s = document.createElement('a-sphere');
+
+      const r = 0.03 + Math.random() * 0.05; // radio
+      s.setAttribute('radius', r.toFixed(3));
+      s.setAttribute('color', colorHex);
+      s.setAttribute('position', `0 ${originY} 0`);
+
+      // movimiento aleatorio hacia afuera
+      const dx = (Math.random() - 0.5) * 2.2;
+      const dy = 0.6 + Math.random() * 1.4;
+      const dz = (Math.random() - 0.5) * 2.2;
+      const dur = 700 + Math.random() * 700;
+
+      // animación de posición
+      s.setAttribute('animation__move', `
+        property: position;
+        to: ${dx.toFixed(3)} ${dy.toFixed(3)} ${dz.toFixed(3)};
+        dur: ${dur.toFixed(0)};
+        easing: easeOutCubic;
+        loop: false;
+      `);
+
+      // animación de opacidad (desvanecer)
+      s.setAttribute('material', 'opacity:1; transparent:true;');
+      s.setAttribute('animation__fade', `
+        property: material.opacity;
+        to: 0;
+        dur: ${dur.toFixed(0)};
+        easing: linear;
+        delay: ${Math.floor(dur*0.1)};
+      `);
+
+      particles.appendChild(s);
+    }
+
+    // Añadir y limpiar después de 2s
+    root.appendChild(particles);
+    setTimeout(() => {
+      if (root.contains(particles)) root.removeChild(particles);
+    }, 2200);
+  }
+
+  // Efecto "ascenso" (cometa) con burst final
+  function launchRocket(colorHex) {
+    // cuerpo del cohete (sube)
+    const rocket = document.createElement('a-sphere');
+    rocket.setAttribute('radius', 0.05);
+    rocket.setAttribute('color', colorHex);
+    rocket.setAttribute('position', '0 0 0');
+
+    // animación de subida
+    rocket.setAttribute('animation__rise', `
+      property: position;
+      to: 0 1.6 0;
+      dur: 700;
+      easing: easeOutQuad;
+      loop: false;
+    `);
+    root.appendChild(rocket);
+
+    // cuando termina la subida, generar partículas (explosión)
+    setTimeout(() => {
+      // burst de partículas
+      spawnParticles(colorHex, 30, 1.6);
+      // limpiar cohete
+      if (root.contains(rocket)) root.removeChild(rocket);
+    }, 720);
+  }
+
+  // Función que lanza 3 cohetes de colores distintos con pequeñas separaciones
+  function launchShow() {
+    // para evitar llamadas múltiples en muy poco tiempo
+    if (btn.disabled) return;
+    btn.disabled = true;
+    btn.style.opacity = 0.6;
+
+    // 3 lanzamientos con delay
+    launchRocket('#ff2233'); // rojo
+    setTimeout(() => launchRocket('#00d1ff'), 250); // azul
+    setTimeout(() => launchRocket('#33ff66'), 450); // verde
+
+    // permitir nuevo lanzamiento después de 2s
+    setTimeout(() => {
+      btn.disabled = false;
+      btn.style.opacity = 1;
+    }, 2200);
+  }
+
+  // Eventos: click en botón y click en pantalla (útil en móviles)
+  btn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    launchShow();
+  });
+
+  // click en body también lanza (útil para usuarios que no vean el botón)
+  document.body.addEventListener('click', (e) => {
+    // ignorar clicks si están sobre un enlace u otro control
+    if (e.target.tagName.toLowerCase() === 'a') return;
+    launchShow();
+  });
+
+  // Consejo: si tu móvil no pide cámara, recordá abrir la URL con HTTPS y permitirla manualmente.
+</script>
+
+</body>
+</html>
