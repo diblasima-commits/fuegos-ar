@@ -10,22 +10,7 @@
   <script src="https://raw.githack.com/AR-js-org/AR.js/master/aframe/build/aframe-ar.js"></script>
 
   <style>
-    html,body { height:100%; margin:0; font-family: Arial, Helvetica, sans-serif; }
-    #launch-btn {
-      position: fixed;
-      bottom: 18px;
-      left: 50%;
-      transform: translateX(-50%);
-      background: linear-gradient(180deg,#ff4d6d,#c4003b);
-      color: #fff;
-      border: none;
-      padding: 12px 22px;
-      font-size: 18px;
-      border-radius: 12px;
-      box-shadow: 0 6px 16px rgba(0,0,0,0.3);
-      z-index: 10;
-      cursor: pointer;
-    }
+    html,body { height:100%; margin:0; font-family: Arial, Helvetica, sans-serif; background:#000; }
     #info {
       position: fixed;
       top: 10px;
@@ -35,21 +20,37 @@
       padding: 8px 10px;
       border-radius: 8px;
       font-size: 14px;
-      z-index: 10;
-      max-width: 45%;
+      z-index: 9999;
+      max-width: 48%;
     }
     #hint {
       position: fixed;
       top: 10px;
       right: 10px;
-      background: rgba(255,255,255,0.85);
+      background: rgba(255,255,255,0.92);
       color: #111;
       padding: 8px 10px;
       border-radius: 8px;
       font-size: 13px;
-      z-index: 10;
+      z-index: 9999;
     }
-    /* Evitar que el botón o info interfieran con la escena AR */
+    /* fallback overlay button (some mobiles lo mostrarán) */
+    #overlay-launch {
+      position: fixed;
+      bottom: 18px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: linear-gradient(180deg,#ff4d6d,#c4003b);
+      color: #fff;
+      border: none;
+      padding: 10px 18px;
+      font-size: 16px;
+      border-radius: 12px;
+      box-shadow: 0 6px 16px rgba(0,0,0,0.3);
+      z-index: 9999;
+      display: none; /* lo mostraremos si es compatible */
+    }
+    #overlay-launch:active { transform: translateX(-50%) scale(0.98); }
     a-scene { width:100%; height:100%; display:block; }
   </style>
 </head>
@@ -60,51 +61,62 @@
     1) Abrí este link en el celular<br>
     2) Permití el acceso a la cámara<br>
     3) Apuntá al marcador <em>Hiro</em><br>
-    4) Tocá <strong>Launch!</strong>
+    4) Toca el botón virtual (sobre el marcador) o el botón en pantalla
   </div>
 
-  <div id="hint">Marker: <a href="https://raw.githubusercontent.com/AR-js-org/AR.js/master/data/images/hiro.png" target="_blank" style="color:#ffd;">Hiro (click to open)</a></div>
+  <div id="hint">Marker: <a href="https://raw.githubusercontent.com/AR-js-org/AR.js/master/data/images/hiro.png" target="_blank" style="color:#ffd;">Hiro (open)</a></div>
 
-  <button id="launch-btn">🚀 Launch!</button>
+  <button id="overlay-launch">🚀 Launch!</button>
 
   <!-- Escena A-Frame con AR.js (marker-based) -->
   <a-scene embedded arjs="sourceType: webcam; debugUIEnabled: false;">
-    <!-- marcador hiro por defecto -->
     <a-marker preset="hiro">
-      <!-- Nodo contenedor para los fuegos -->
-      <a-entity id="fx-root" position="0 0 0" rotation="0 0 0"></a-entity>
 
-      <!-- Suave "suelo" invisible para referencias (opcional) -->
+      <!-- Nodo raíz -->
+      <a-entity id="fx-root" position="0 0 0"></a-entity>
+
+      <!-- Botón virtual AR: un plano con texto que siempre queda sobre el marcador -->
+      <a-entity id="virtual-button" position="0 0.4 0" rotation="-30 0 0" visible="true">
+        <a-plane id="btn-plane" width="0.6" height="0.25" color="#ff3366" material="shader:flat; opacity:0.95" class="clickable"></a-plane>
+        <a-text value="🚀 LAUNCH" align="center" position="0 0 0.01" color="#fff" width="2.5"></a-text>
+
+        <!-- borde visual -->
+        <a-ring radius-inner="0.35" radius-outer="0.36" position="0 -0.06 0.001" rotation="-90 0 0" color="#ffffff" material="opacity:0.25"></a-ring>
+      </a-entity>
+
+      <!-- Un pequeño "piso" invisible para referenciar efectos -->
       <a-plane position="0 0 0" rotation="-90 0 0" width="2" height="2" visible="false"></a-plane>
     </a-marker>
 
-    <!-- cámara -->
     <a-entity camera></a-entity>
   </a-scene>
 
 <script>
-  // Referencias
   const root = document.getElementById('fx-root');
-  const btn = document.getElementById('launch-btn');
+  const overlayBtn = document.getElementById('overlay-launch');
 
-  // Crea partículas simples (esferas) que se expanden y se desvanecen
+  // Mostrar overlay si el navegador lo permite (fallback)
+  function showOverlayIfPossible() {
+    // algunos navegadores móviles ocultan position:fixed en modo AR, pero vale la pena probar
+    overlayBtn.style.display = 'block';
+  }
+  showOverlayIfPossible();
+
+  // ---- Partículas y lógica de lanzamiento (mismo comportamiento que antes) ----
   function spawnParticles(colorHex, count = 24, originY = 1.0) {
     const particles = document.createElement('a-entity');
     for (let i = 0; i < count; i++) {
       const s = document.createElement('a-sphere');
-
-      const r = 0.03 + Math.random() * 0.05; // radio
+      const r = 0.03 + Math.random() * 0.05;
       s.setAttribute('radius', r.toFixed(3));
       s.setAttribute('color', colorHex);
       s.setAttribute('position', `0 ${originY} 0`);
 
-      // movimiento aleatorio hacia afuera
       const dx = (Math.random() - 0.5) * 2.2;
       const dy = 0.6 + Math.random() * 1.4;
       const dz = (Math.random() - 0.5) * 2.2;
       const dur = 700 + Math.random() * 700;
 
-      // animación de posición
       s.setAttribute('animation__move', `
         property: position;
         to: ${dx.toFixed(3)} ${dy.toFixed(3)} ${dz.toFixed(3)};
@@ -113,7 +125,6 @@
         loop: false;
       `);
 
-      // animación de opacidad (desvanecer)
       s.setAttribute('material', 'opacity:1; transparent:true;');
       s.setAttribute('animation__fade', `
         property: material.opacity;
@@ -126,22 +137,16 @@
       particles.appendChild(s);
     }
 
-    // Añadir y limpiar después de 2s
     root.appendChild(particles);
-    setTimeout(() => {
-      if (root.contains(particles)) root.removeChild(particles);
-    }, 2200);
+    setTimeout(() => { if (root.contains(particles)) root.removeChild(particles); }, 2400);
   }
 
-  // Efecto "ascenso" (cometa) con burst final
   function launchRocket(colorHex) {
-    // cuerpo del cohete (sube)
     const rocket = document.createElement('a-sphere');
     rocket.setAttribute('radius', 0.05);
     rocket.setAttribute('color', colorHex);
     rocket.setAttribute('position', '0 0 0');
 
-    // animación de subida
     rocket.setAttribute('animation__rise', `
       property: position;
       to: 0 1.6 0;
@@ -149,50 +154,67 @@
       easing: easeOutQuad;
       loop: false;
     `);
+
     root.appendChild(rocket);
 
-    // cuando termina la subida, generar partículas (explosión)
     setTimeout(() => {
-      // burst de partículas
       spawnParticles(colorHex, 30, 1.6);
-      // limpiar cohete
       if (root.contains(rocket)) root.removeChild(rocket);
     }, 720);
   }
 
-  // Función que lanza 3 cohetes de colores distintos con pequeñas separaciones
   function launchShow() {
-    // para evitar llamadas múltiples en muy poco tiempo
-    if (btn.disabled) return;
-    btn.disabled = true;
-    btn.style.opacity = 0.6;
-
-    // 3 lanzamientos con delay
-    launchRocket('#ff2233'); // rojo
-    setTimeout(() => launchRocket('#00d1ff'), 250); // azul
-    setTimeout(() => launchRocket('#33ff66'), 450); // verde
-
-    // permitir nuevo lanzamiento después de 2s
-    setTimeout(() => {
-      btn.disabled = false;
-      btn.style.opacity = 1;
-    }, 2200);
+    // desactivar temporalmente para evitar spam
+    overlayBtn.disabled = true;
+    overlayBtn.style.opacity = 0.6;
+    launchRocket('#ff2233');
+    setTimeout(() => launchRocket('#00d1ff'), 250);
+    setTimeout(() => launchRocket('#33ff66'), 450);
+    setTimeout(() => { overlayBtn.disabled = false; overlayBtn.style.opacity = 1; }, 2200);
   }
 
-  // Eventos: click en botón y click en pantalla (útil en móviles)
-  btn.addEventListener('click', (e) => {
+  // ---- eventos para overlay button (fallback) ----
+  overlayBtn.addEventListener('click', (e) => {
     e.stopPropagation();
     launchShow();
   });
 
-  // click en body también lanza (útil para usuarios que no vean el botón)
-  document.body.addEventListener('click', (e) => {
-    // ignorar clicks si están sobre un enlace u otro control
-    if (e.target.tagName.toLowerCase() === 'a') return;
-    launchShow();
+  // ---- Eventos para el botón virtual dentro de la escena AR ----
+  // Usamos raycaster de A-Frame para detectar clicks/taps en el plano 'btn-plane'
+  AFRAME.registerComponent('tap-listener', {
+    init: function () {
+      const el = this.el;
+      // cuando recibimos el evento 'click' desde el sistema, ejecutamos
+      el.addEventListener('click', (evt) => {
+        launchShow();
+      });
+
+      // También atender event touches en dispositivos que no emitan el click
+      el.addEventListener('touchstart', (evt) => {
+        launchShow();
+      });
+    }
   });
 
-  // Consejo: si tu móvil no pide cámara, recordá abrir la URL con HTTPS y permitirla manualmente.
+  // Asociar el componente al plano cuando la escena esté lista
+  document.querySelector('a-scene').addEventListener('loaded', () => {
+    const plane = document.querySelector('#btn-plane');
+    if (plane) {
+      plane.setAttribute('class', 'interactive');
+      plane.setAttribute('tap-listener', '');
+      // Habilitar raycaster en la cámara para detectar el toque
+      const cam = document.querySelector('[camera]');
+      if (cam && !cam.getAttribute('raycaster')) {
+        cam.setAttribute('raycaster', 'objects: .interactive; far: 10');
+      }
+    }
+  });
+
+  // ---- Consejo: en móviles, si no aparece, tocar la pantalla una vez para activar UI ----
+  document.body.addEventListener('click', () => {
+    // noop, solo para generar la primera interacción en algunos navegadores
+  }, { once: true });
+
 </script>
 
 </body>
