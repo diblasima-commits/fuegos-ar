@@ -1,269 +1,342 @@
 <!doctype html>
 <html lang="es">
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
-  <title>Fireworks AR - FIXED Zoom & Big Show</title>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/>
+  <title>Fireworks AR - Robust (Marker + Fallback)</title>
 
-  <!-- A-Frame + AR.js -->
+  <!-- A-Frame + AR.js (intentamos marker) -->
   <script src="https://aframe.io/releases/1.5.0/aframe.min.js"></script>
   <script src="https://cdn.jsdelivr.net/gh/AR-js-org/AR.js@3.4.4/aframe/build/aframe-ar.js"></script>
 
   <style>
-    html,body { margin:0; height:100%; background:#000; font-family: Arial, sans-serif; }
-    /* Scene full-viewport */
-    a-scene { position: fixed; top:0; left:0; width:100%; height:100%; z-index:0; }
-
-    /* Force default video behavior to avoid browser zoom/crop:
-       we set object-fit: contain so the video fits inside viewport without zooming.
-       Then we center the scene and use A-Frame elements overlayed on top. */
-    video, .arjs-video, video#arjs-video, video[playsinline] {
-      position: fixed !important;
-      top: 0 !important;
-      left: 0 !important;
-      width: 100% !important;
-      height: 100% !important;
-      object-fit: contain !important;   /* <-- key change (avoid zooming) */
-      transform: none !important;
-      z-index: 0 !important;
-      background: black;
+    html,body{height:100%;margin:0;background:#000;color:#fff;font-family:Arial,Helvetica,sans-serif}
+    /* Fullscreen video / canvas */
+    .full {
+      position:fixed; top:0; left:0; width:100%; height:100%; z-index:0;
+      background:black;
     }
-
+    /* Force video not to zoom: contain avoids browser crop zoom issues */
+    video, .arjs-video, video#arjs-video, video[playsinline] {
+      object-fit: contain !important;
+      width:100% !important; height:100% !important;
+      position:fixed !important; top:0 !important; left:0 !important;
+      z-index:0 !important;
+      background:black;
+    }
     /* UI overlays */
     #ui {
-      position: fixed;
-      top: 10px;
-      left: 10px;
-      z-index: 9999;
-      display:flex;
-      gap:8px;
-      align-items:center;
+      position:fixed; top:10px; left:10px; z-index:9999; display:flex; gap:8px; align-items:center;
     }
-    #startBtn, #stopBtn {
-      padding:10px 14px;
-      border-radius:8px;
-      border:none;
-      font-size:14px;
-      cursor:pointer;
-    }
-    #startBtn { background:#1FAE2F; color:white; }
-    #stopBtn  { background:#E03F3F; color:white; display:none; }
-    #status {
-      position: fixed;
-      left: 12px;
-      bottom: 12px;
-      z-index:9999;
-      background: rgba(0,0,0,0.6);
-      color: #fff;
-      padding: 8px 10px;
-      border-radius: 8px;
-      font-size: 13px;
-      max-width: 60%;
-    }
-    #debug {
-      position: fixed;
-      right: 12px;
-      top: 12px;
-      z-index:9999;
-      color:#fff;
-      font-size:12px;
-      background: rgba(0,0,0,0.35);
-      padding:6px 8px;
-      border-radius:6px;
-    }
+    button { padding:10px 14px; border-radius:8px; border:none; cursor:pointer; font-size:15px; }
+    #startBtn { background:#1FAE2F; color:#fff; }
+    #stopBtn  { background:#E03F3F; color:#fff; display:none; }
+    #status { position:fixed; left:12px; bottom:12px; z-index:9999; background:rgba(0,0,0,0.6); padding:8px 10px; border-radius:8px; font-size:13px; max-width:60%;}
+    #hint { color:#fff; font-size:13px; margin-left:8px; }
+
+    /* canvas overlay for fallback fireworks */
+    #fxCanvas { z-index: 5; pointer-events: auto; }
+
+    /* small instruction box */
+    #infoBox { position:fixed; right:12px; top:12px; z-index:9999; background:rgba(255,255,255,0.9); color:#111; padding:8px 10px; border-radius:8px; font-size:13px; max-width:36%; }
   </style>
 </head>
 <body>
 
+  <!-- UI -->
   <div id="ui">
     <button id="startBtn">▶ Start experience</button>
-    <button id="stopBtn">■ Stop AR</button>
-    <div id="hint" style="color:#fff;font-size:13px;margin-left:8px">Imprime el marcador HIRO y mantenlo visible</div>
+    <button id="stopBtn">■ Stop</button>
+    <div id="hint">Imprime HIRO (opcional). Si el marker no se detecta, el show funciona igual.</div>
   </div>
 
+  <div id="infoBox">Consejo: abrir en Chrome (Android) o Safari (iPhone) directamente. No usar WhatsApp/Instagram in-app browser.</div>
   <div id="status">Estado: esperando inicio</div>
-  <div id="debug">debug: -</div>
 
-  <!-- Scene (hidden until start) -->
-  <a-scene id="scene" embedded style="display:none"
-           arjs="sourceType: webcam; debugUIEnabled: false; detectionMode: mono;">
+  <!-- 1) AR.js scene (attempt marker) - hidden until start -->
+  <a-scene id="arScene" embedded style="display:none" arjs="sourceType: webcam; debugUIEnabled: false; detectionMode: mono;">
     <a-marker preset="hiro" id="hiroMarker">
-      <!-- origin un poco mas arriba para que los fuegos sean claramente visibles -->
-      <a-entity id="fx-root" position="0 0.45 0" scale="1.6 1.6 1.6"></a-entity>
+      <a-entity id="fxRootAR" position="0 0.45 0" scale="1.6 1.6 1.6"></a-entity>
       <a-plane position="0 0 0" rotation="-90 0 0" width="2" height="2" visible="false"></a-plane>
     </a-marker>
-
     <a-entity camera></a-entity>
   </a-scene>
 
+  <!-- 2) Fallback camera + canvas (hidden until needed) -->
+  <video id="fallbackVideo" class="full" autoplay playsinline muted style="display:none;"></video>
+  <canvas id="fxCanvas" class="full" style="display:none;"></canvas>
+
 <script>
-  const startBtn = document.getElementById('startBtn');
-  const stopBtn  = document.getElementById('stopBtn');
-  const statusEl = document.getElementById('status');
-  const debugEl  = document.getElementById('debug');
-  const sceneEl  = document.getElementById('scene');
-  let autoInterval = null;
-  let markerVisible = false;
+/*
+ Strategy:
+ 1) Ask camera permission on Start.
+ 2) Show AR scene and wait up to MARKER_TIMEOUT ms for markerFound.
+ 3) If markerFound -> use AR mode (automatic shows while marker visible).
+    Else -> start fallback mode: show video feed + canvas and auto-run fireworks.
+ 4) Provide Stop to clean up.
+*/
 
-  // ENSURE camera prompt (forces permission; AR.js will re-open stream)
-  async function requestCamera() {
-    statusEl.innerText = 'Estado: solicitando permiso de cámara...';
-    debugEl.innerText = 'debug: requesting getUserMedia';
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
-      stream.getTracks().forEach(t => t.stop());
-      debugEl.innerText = 'debug: permiso concedido';
-      return true;
-    } catch (err) {
-      console.error(err);
-      debugEl.innerText = 'debug: permiso DENEGADO or getUserMedia error';
-      statusEl.innerText = 'Estado: permiso denegado o cámara no disponible';
-      return false;
-    }
-  }
+const MARKER_TIMEOUT = 3000; // ms to wait for markerFound before fallback
+const AUTO_SHOW_INTERVAL = 9000; // ms between auto shows
 
-  // Force video styling again after AR.js injects it
-  function enforceVideoStyle() {
-    // try a few selectors
-    const selectors = ['.arjs-video', 'video#arjs-video', 'video[playsinline]', 'video'];
-    for (const sel of selectors) {
-      const v = document.querySelector(sel);
-      if (v) {
-        v.style.objectFit = 'contain';
-        v.style.width = '100%';
-        v.style.height = '100%';
-        v.style.top = '0';
-        v.style.left = '0';
-        v.style.transform = 'none';
-      }
-    }
-    debugEl.innerText = 'debug: video style enforced';
-  }
+const startBtn = document.getElementById('startBtn');
+const stopBtn  = document.getElementById('stopBtn');
+const statusEl = document.getElementById('status');
+const arScene  = document.getElementById('arScene');
+const fallbackVideo = document.getElementById('fallbackVideo');
+const fxCanvas = document.getElementById('fxCanvas');
+const fxCtx = fxCanvas.getContext ? fxCanvas.getContext('2d') : null;
 
-  async function startExperience() {
-    startBtn.disabled = true;
-    const ok = await requestCamera();
-    if (!ok) { startBtn.disabled = false; return; }
-    // show scene and wait a moment for AR.js to create the video element
-    sceneEl.style.display = 'block';
-    startBtn.style.display = 'none';
-    stopBtn.style.display = 'inline-block';
-    statusEl.innerText = 'Estado: cámara activa — apunta al HIRO';
-    // after small delay, enforce style (ensures proper object-fit)
-    setTimeout(enforceVideoStyle, 400);
-    setTimeout(enforceVideoStyle, 1000);
-    setTimeout(enforceVideoStyle, 2000);
-    // prepare marker listeners
-    setupMarkerListeners();
-  }
+let arMode = false;
+let markerSeen = false;
+let markerTimer = null;
+let fallbackStream = null;
+let fallbackAutoInterval = null;
+let particles = [];
 
-  function stopExperience() {
-    stopAuto();
-    // hide scene and reset UI
-    sceneEl.style.display = 'none';
-    stopBtn.style.display = 'none';
-    startBtn.style.display = 'inline-block';
-    statusEl.innerText = 'Estado: detenido';
-    debugEl.innerText = 'debug: stopped';
-  }
+// Utilities for particles (canvas)
+function resizeCanvas() {
+  fxCanvas.width = window.innerWidth;
+  fxCanvas.height = window.innerHeight;
+}
+window.addEventListener('resize', resizeCanvas);
 
-  startBtn.addEventListener('click', startExperience);
-  stopBtn.addEventListener('click', stopExperience);
-
-  // --- visual fireworks (vistoso y duradero) ---
-  function spawnExplosion(color, count = 100, originY = 1.6, lifeMs = 8000) {
-    const root = document.querySelector('#fx-root');
-    if (!root) return;
-    const group = document.createElement('a-entity');
-
-    for (let i = 0; i < count; i++) {
-      const s = document.createElement('a-sphere');
-      const r = 0.035 + Math.random() * 0.07;
-      s.setAttribute('radius', r.toFixed(3));
-      s.setAttribute('color', color);
-      s.setAttribute('position', `0 ${originY} 0`);
-      s.setAttribute('material', 'opacity:1; transparent:true;');
-
-      const ang = Math.random() * Math.PI * 2;
-      const rad = 0.8 + Math.random() * 2.0;
-      const dx = Math.cos(ang) * rad;
-      const dy = 0.8 + Math.random() * 2.2;
-      const dz = Math.sin(ang) * rad;
-      const dur = 1200 + Math.random() * 2200;
-
-      s.setAttribute('animation__move', `
-        property: position;
-        to: ${dx.toFixed(3)} ${dy.toFixed(3)} ${dz.toFixed(3)};
-        dur: ${Math.floor(dur)};
-        easing: easeOutCubic;
-        loop: false;
-      `);
-      s.setAttribute('animation__fade', `
-        property: material.opacity;
-        to: 0;
-        dur: ${Math.floor(dur + 800)};
-        delay: ${Math.floor(dur*0.08)};
-      `);
-
-      group.appendChild(s);
-    }
-
-    root.appendChild(group);
-    // cleanup after lifeMs + buffer
-    setTimeout(()=> { if (root.contains(group)) root.removeChild(group); }, lifeMs + 1200);
-  }
-
-  function launchSequence() {
-    spawnExplosion('#ff2d55', 120, 1.5, 8000);
-    setTimeout(()=> spawnExplosion('#ffd60a', 100, 1.3, 8000), 600);
-    setTimeout(()=> spawnExplosion('#32d74b', 100, 1.6, 8000), 1200);
-    setTimeout(()=> spawnExplosion('#5ac8fa', 90, 1.7, 8000), 2000);
-    setTimeout(()=> spawnExplosion('#bf5af2', 90, 1.5, 8000), 2800);
-    setTimeout(()=> spawnExplosion('#ffffff', 180, 1.8, 9000), 3800); // final
-  }
-
-  // auto while marker visible
-  function startAuto() {
-    if (autoInterval) return;
-    launchSequence();
-    autoInterval = setInterval(launchSequence, 10000); // cada 10s (ajustable)
-    statusEl.innerText = 'Estado: show automático activo';
-  }
-  function stopAuto() {
-    if (!autoInterval) return;
-    clearInterval(autoInterval);
-    autoInterval = null;
-    statusEl.innerText = 'Estado: show detenido';
-  }
-
-  // --- marker listeners ---
-  function setupMarkerListeners() {
-    const marker = document.getElementById('hiroMarker');
-    if (!marker) {
-      debugEl.innerText = 'debug: marker no encontrado';
-      statusEl.innerText = 'Error interno: marker no en DOM';
-      return;
-    }
-    marker.addEventListener('markerFound', () => {
-      console.log('markerFound');
-      debugEl.innerText = 'debug: markerFound';
-      markerVisible = true;
-      // ensure video style when marker found
-      setTimeout(enforceVideoStyle, 200);
-      // start automatic shows (after stability)
-      setTimeout(()=> { if (markerVisible) startAuto(); }, 700);
-    });
-    marker.addEventListener('markerLost', () => {
-      console.log('markerLost');
-      debugEl.innerText = 'debug: markerLost';
-      markerVisible = false;
-      stopAuto();
-      // keep particles for a bit so show remains impressive
+// Particle system for fallback (canvas)
+function spawnFireworkCanvas(x, y) {
+  const colors = ['#ff2d55','#ffd60a','#32d74b','#5ac8fa','#bf5af2','#ffffff'];
+  const mainColor = colors[Math.floor(Math.random()*colors.length)];
+  const count = 120;
+  for (let i=0;i<count;i++){
+    const angle = Math.random()*Math.PI*2;
+    const speed = 1 + Math.random()*4;
+    particles.push({
+      x, y,
+      vx: Math.cos(angle)*speed,
+      vy: Math.sin(angle)*speed - (1 + Math.random()*2),
+      r: 2 + Math.random()*5,
+      life: 80 + Math.random()*180,
+      color: mainColor,
+      alpha: 1
     });
   }
+}
 
-  // small guidance log
-  console.log('Fixed AR page loaded. Use Chrome (Android) or Safari (iOS). Keep marker ~25-40cm from camera.');
+function updateAndDrawCanvas() {
+  if (!fxCtx) return;
+  fxCtx.clearRect(0,0,fxCanvas.width, fxCanvas.height);
+  // draw particles
+  for (let i = particles.length-1; i>=0; i--) {
+    const p = particles[i];
+    p.x += p.vx;
+    p.y += p.vy;
+    p.vy += 0.06; // gravity
+    p.life--;
+    p.alpha = Math.max(0, p.life/200);
+    fxCtx.globalAlpha = p.alpha;
+    fxCtx.fillStyle = p.color;
+    fxCtx.beginPath();
+    fxCtx.arc(p.x, p.y, p.r, 0, Math.PI*2);
+    fxCtx.fill();
+    fxCtx.globalAlpha = 1;
+    if (p.life <= 0) particles.splice(i,1);
+  }
+  requestAnimationFrame(updateAndDrawCanvas);
+}
+
+// Fallback: start camera and canvas
+async function startFallbackMode() {
+  // stop AR if somehow running
+  stopARMode();
+
+  // start camera feed
+  try {
+    fallbackStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+    fallbackVideo.srcObject = fallbackStream;
+    fallbackVideo.style.display = 'block';
+    fxCanvas.style.display = 'block';
+    resizeCanvas();
+    requestAnimationFrame(updateAndDrawCanvas);
+    // auto shows every X seconds, and also on tap
+    spawnFireworkCanvas(window.innerWidth/2, window.innerHeight/2);
+    fallbackAutoInterval = setInterval(()=> {
+      spawnFireworkCanvas(window.innerWidth/2 + (Math.random()*200-100), window.innerHeight/2 - 100 - Math.random()*120);
+    }, AUTO_SHOW_INTERVAL);
+    // tap to spawn
+    fxCanvas.addEventListener('click', function onTap(e){
+      const rect = fxCanvas.getBoundingClientRect();
+      const x = e.clientX - rect.left;
+      const y = e.clientY - rect.top;
+      spawnFireworkCanvas(x,y);
+    });
+    statusEl.innerText = 'Modo fallback: cámara activa — show en curso (toca para lanzar más)';
+    arMode = false;
+  } catch (err) {
+    console.error('Fallback camera error', err);
+    statusEl.innerText = 'Error: no se pudo iniciar cámara. Revise permisos.';
+  }
+}
+
+// Stop fallback
+function stopFallbackMode() {
+  if (fallbackAutoInterval) { clearInterval(fallbackAutoInterval); fallbackAutoInterval = null; }
+  particles = [];
+  fxCtx && fxCtx.clearRect(0,0,fxCanvas.width, fxCanvas.height);
+  fxCanvas.style.display = 'none';
+  fallbackVideo.style.display = 'none';
+  if (fallbackStream) {
+    fallbackStream.getTracks().forEach(t => t.stop());
+    fallbackStream = null;
+  }
+}
+
+// AR Mode: create fireworks in AR.js scene (A-Frame)
+function spawnExplosionAR(color, amount=80, originY=1.5, lifetime=7000) {
+  const root = document.querySelector('#fxRootAR');
+  if (!root) return;
+  const group = document.createElement('a-entity');
+  for (let i=0;i<amount;i++){
+    const s = document.createElement('a-sphere');
+    const r = 0.03 + Math.random()*0.06;
+    s.setAttribute('radius', r.toFixed(3));
+    s.setAttribute('color', color);
+    s.setAttribute('position', `0 ${originY} 0`);
+    s.setAttribute('material', 'opacity:1; transparent:true;');
+    const ang = Math.random()*Math.PI*2;
+    const rad = 0.8 + Math.random()*1.7;
+    const dx = Math.cos(ang)*rad;
+    const dy = 0.8 + Math.random()*2.0;
+    const dz = Math.sin(ang)*rad;
+    const dur = 1000 + Math.random()*2000;
+    s.setAttribute('animation__move', `property: position; to: ${dx.toFixed(3)} ${dy.toFixed(3)} ${dz.toFixed(3)}; dur: ${Math.floor(dur)}; easing: easeOutCubic; loop: false;`);
+    s.setAttribute('animation__fade', `property: material.opacity; to: 0; dur: ${Math.floor(dur+400)}; delay: ${Math.floor(dur*0.08)};`);
+    group.appendChild(s);
+  }
+  root.appendChild(group);
+  setTimeout(()=> { if (root.contains(group)) root.removeChild(group); }, lifetime + 1000);
+}
+
+function launchARSequence() {
+  spawnExplosionAR('#ff2d55',120,1.5,8000);
+  setTimeout(()=> spawnExplosionAR('#ffd60a',100,1.3,8000),600);
+  setTimeout(()=> spawnExplosionAR('#32d74b',100,1.6,8000),1200);
+  setTimeout(()=> spawnExplosionAR('#5ac8fa',90,1.7,8000),2000);
+  setTimeout(()=> spawnExplosionAR('#bf5af2',90,1.5,8000),2800);
+  setTimeout(()=> spawnExplosionAR('#ffffff',180,1.8,9000),3800);
+}
+
+// Start AR mode (show arScene)
+function startARMode() {
+  stopFallbackMode();
+  arScene.style.display = 'block';
+  statusEl.innerText = 'Modo AR: esperando marker...';
+  arMode = true;
+
+  // set marker listeners
+  const marker = document.getElementById('hiroMarker');
+  if (!marker) {
+    statusEl.innerText = 'Error: marker no encontrado en la escena.';
+    return;
+  }
+  // avoid duplicate handlers
+  marker.removeEventListener('markerFound', _markerFoundHandler);
+  marker.removeEventListener('markerLost', _markerLostHandler);
+  marker.addEventListener('markerFound', _markerFoundHandler);
+  marker.addEventListener('markerLost', _markerLostHandler);
+
+  // Start a timer: if no markerFound in MARKER_TIMEOUT -> fallback
+  clearTimeout(markerTimer);
+  markerTimer = setTimeout(()=> {
+    if (!markerSeen) {
+      // no marker detected in time -> fallback
+      console.warn('Marker not detected within timeout, switching to fallback.');
+      statusEl.innerText = 'Marker no detectado: usando modo fallback (sin marker).';
+      startFallbackMode();
+      arScene.style.display = 'none';
+    }
+  }, MARKER_TIMEOUT);
+}
+
+// Handlers must be defined outside to remove listeners safely
+function _markerFoundHandler() {
+  markerSeen = true;
+  statusEl.innerText = 'Marker detected — show automático activo';
+  // ensure AR runs: launch sequence immediately and every X seconds while visible
+  launchARSequence();
+  // clear existing interval if any
+  if (window.__arAutoInterval) clearInterval(window.__arAutoInterval);
+  window.__arAutoInterval = setInterval(launchARSequence, AUTO_SHOW_INTERVAL);
+}
+
+function _markerLostHandler() {
+  markerSeen = false;
+  statusEl.innerText = 'Marker lost — pausing shows';
+  if (window.__arAutoInterval) { clearInterval(window.__arAutoInterval); window.__arAutoInterval = null; }
+}
+
+// Stop AR mode
+function stopARMode() {
+  arScene.style.display = 'none';
+  const marker = document.getElementById('hiroMarker');
+  if (marker) {
+    marker.removeEventListener('markerFound', _markerFoundHandler);
+    marker.removeEventListener('markerLost', _markerLostHandler);
+  }
+  if (window.__arAutoInterval) { clearInterval(window.__arAutoInterval); window.__arAutoInterval = null; }
+}
+
+// Start button: request camera (for permissions) then attempt AR mode
+startBtn.addEventListener('click', async () => {
+  startBtn.disabled = true;
+  statusEl.innerText = 'Solicitando permiso de cámara...';
+  try {
+    // request camera permission to ensure prompt on mobile
+    const s = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+    s.getTracks().forEach(t=>t.stop());
+  } catch(err) {
+    console.error('getUserMedia failed', err);
+    statusEl.innerText = 'Permiso de cámara denegado. No se puede continuar.';
+    startBtn.disabled = false;
+    return;
+  }
+
+  // Attempt AR marker mode first
+  startARMode();
+});
+
+// Stop button
+stopBtn.addEventListener('click', () => {
+  stopARMode();
+  stopFallbackMode();
+  startBtn.disabled = false;
+  startBtn.style.display = 'inline-block';
+  stopBtn.style.display = 'none';
+  statusEl.innerText = 'Detenido';
+});
+
+// show Stop button when any mode starts (global)
+function showStop() {
+  startBtn.style.display = 'none';
+  stopBtn.style.display = 'inline-block';
+}
+
+// Observe arScene display changes to show stop UI
+const obs = new MutationObserver(() => {
+  if (arScene.style.display === 'block' || fallbackVideo.style.display === 'block') showStop();
+});
+obs.observe(arScene, { attributes: true, attributeFilter: ['style'] });
+obs.observe(fxCanvas, { attributes: true, attributeFilter: ['style'] });
+
+// Clean-up when page hidden
+document.addEventListener('visibilitychange', ()=> {
+  if (document.hidden) {
+    stopARMode();
+    stopFallbackMode();
+  }
+});
+
+// Auto-set canvas size
+resizeCanvas();
+
 </script>
 </body>
 </html>
